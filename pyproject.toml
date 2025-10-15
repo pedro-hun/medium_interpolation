@@ -1,0 +1,14 @@
+[project]
+name = "medium-interpolation"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "matplotlib>=3.10.6",
+    "numpy>=2.3.3",
+    "pandas>=2.3.3",
+    "scipy>=1.16.2",
+    "xlwings>=0.33.15",
+    "yfinance>=0.2.66",
+]
