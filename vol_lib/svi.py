@@ -186,7 +186,9 @@ def calibrate_svi_slice(k: np.ndarray,
 # --- Main Calibration Loop ---
 svi_params_calibrated: Dict[float, np.ndarray] = {}
 optimization_results: Dict[float, Any] = {}
-def calibration_loop(options_data_iv: Dict[float, pd.DataFrame]) -> None:
+def calibration_loop(options_data_iv: Dict[float, pd.DataFrame]) -> tuple[Dict[float, np.ndarray], Dict[float, Any]]:
+    svi_params_calibrated: Dict[float, np.ndarray] = {}
+    optimization_results: Dict[float, Any] = {}
     print("Starting SVI calibration for each expiration slice...")
     for ttm, df_slice in options_data_iv.items():
         if len(df_slice) < 5: # Need sufficient points to fit 5 parameters
@@ -228,12 +230,17 @@ def calibration_loop(options_data_iv: Dict[float, pd.DataFrame]) -> None:
             print(f"  Success: {optim_result.success}, Params: {np.round(calibrated_params, 4)}")
         except Exception as e:
             print(f"  Error during optimization for TTM={ttm:.4f}: {e}")
+        
+    return svi_params_calibrated, optimization_results
 
 
-    print("\nSVI calibration finished.")
+print("\nSVI calibration finished.")
 
 
-    # --- Plot 4: Single Expiry Comparison ---
+# --- Plot 4: Single Expiry Comparison ---
+def single_expiry_comparison_plot(options_data_iv: Dict[float, pd.DataFrame],
+                                  svi_params_calibrated: Dict[float, np.ndarray]) -> None:
+        
     if svi_params_calibrated:
         # Select a TTM for plotting (e.g., the first one calibrated, or a middle one)
         plot_ttm = list(svi_params_calibrated.keys())[len(svi_params_calibrated.keys()) // 2]
