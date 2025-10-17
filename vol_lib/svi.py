@@ -184,8 +184,6 @@ def calibrate_svi_slice(k: np.ndarray,
 
 
 # --- Main Calibration Loop ---
-svi_params_calibrated: Dict[float, np.ndarray] = {}
-optimization_results: Dict[float, Any] = {}
 def calibration_loop(options_data_iv: Dict[float, pd.DataFrame]) -> tuple[Dict[float, np.ndarray], Dict[float, Any]]:
     svi_params_calibrated: Dict[float, np.ndarray] = {}
     optimization_results: Dict[float, Any] = {}
@@ -271,8 +269,8 @@ def single_expiry_comparison_plot(options_data_iv: Dict[float, pd.DataFrame],
         plt.ylabel('ImpliedVolatility')
         plt.legend()
         plt.grid(True, linestyle='--', alpha=0.6)
-        # plt.show() # Uncomment to display plot interactively
-        plt.close()
+        plt.show() # Uncomment to display plot interactively
+        # plt.close()
     else:
         print("Skipping Plot 4 generation as no SVI parameters were successfully calibrated.")
 
@@ -335,8 +333,8 @@ def single_expiry_comparison_plot(options_data_iv: Dict[float, pd.DataFrame],
         ax.set_title('Implied Volatility Surface from Calibrated SVI Model')
         fig.colorbar(surf, shrink=0.5, aspect=5, label='Implied Volatility')
         ax.view_init(elev=30, azim=-120) # Adjust view angle for better visualization
-        # plt.show() # Uncomment to display plot interactively
-        plt.close()
+        plt.show() # Uncomment to display plot interactively
+        # plt.close()
 
     elif len(svi_params_calibrated) == 1:
         print("Skipping Plot 5 generation as only one expiry was calibrated. Need at least two for a surface.")

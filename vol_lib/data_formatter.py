@@ -48,5 +48,24 @@ def format_options_data_to_dict(df: pd.DataFrame,
             
             if len(formatted_df) > 0:
                 result_dict[t][float(tte)] = formatted_df
+
+
+    # for tte in unique_ttes:
+    #     tte_data = df[df[tte_col] == tte].copy()
+        
+    #     formatted_df = pd.DataFrame({
+    #         'Strike': tte_data[strike_col],
+    #         'ImpliedVolatility': tte_data[iv_col],
+    #         'Forward': tte_data[forward_col]
+    #     })
+        
+    #     # Remove any rows with missing or invalid data
+    #     formatted_df = formatted_df.dropna()
+    #     formatted_df = formatted_df[formatted_df['ImpliedVolatility'] > 1e-5]  # Remove zero/negative IVs
+        
+    #     formatted_df = formatted_df.sort_values('Strike').reset_index(drop=True)
+        
+    #     if len(formatted_df) > 0:
+    #         result_dict[float(tte)] = formatted_df
         
     return result_dict
