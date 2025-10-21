@@ -141,6 +141,8 @@ def calibrate_svi_slice(k: np.ndarray,
         w_atm = market_w[np.argmin(np.abs(k))] # Approx variance at the money
         min_w = np.min(market_w)
         max_w = np.max(market_w)
+        # min_w = 0.2
+        # max_w = 0.35
         k_min_w = k[np.argmin(market_w)] # Log-moneyness at min variance
 
         a_guess = min_w # 'a' roughly anchors the minimum variance level
@@ -171,9 +173,9 @@ def calibrate_svi_slice(k: np.ndarray,
     result = minimize(svi_objective,
                       initial_guess,
                       args=(k, market_w, weights),
-                      method='L-BFGS-B',
+                      method='Nelder-Mead',
                       bounds=bounds,
-                      options={'maxiter': 1000, 'ftol': 1e-8, 'gtol': 1e-7}) # Increased maxiter and adjusted tolerances
+                      options={'maxiter': 10000, 'ftol': 1e-8, 'gtol': 1e-7}) # Increased maxiter and adjusted tolerances
 
     if not result.success:
         print(f"Warning: Optimization for TTM={ttm:.4f} failed: {result.message}")
@@ -190,10 +192,10 @@ def calibration_loop(options_data_iv: Dict[float, pd.DataFrame]) -> tuple[Dict[f
     print("Starting SVI calibration for each expiration slice...")
     for ttm, df_slice in options_data_iv.items():
         if len(df_slice) < 5: # Need sufficient points to fit 5 parameters
-            print(f"Skipping TTM={ttm:.4f} due to insufficient data points ({len(df_slice)}).")
+            print(f"Skipping TTM={ttm*252:.4f} due to insufficient data points ({len(df_slice)}).")
             continue
 
-        print(f"Calibrating for TTM = {ttm:.4f} years...")
+        print(f"Calibrating for TTM = {ttm*252:.4f} years...")
         forward_price = df_slice['Forward'].iloc[0]
         strikes = df_slice['Strike'].values
         market_iv = df_slice['ImpliedVolatility'].values
@@ -201,14 +203,14 @@ def calibration_loop(options_data_iv: Dict[float, pd.DataFrame]) -> tuple[Dict[f
         # Avoid issues with zero/infinite moneyness if F or K is zero
         valid_indices = (strikes > 1e-6) & (forward_price > 1e-6)
         if not np.any(valid_indices):
-            print(f"Skipping TTM={ttm:.4f} due to invalid strike/forward prices.")
+            print(f"Skipping TTM={ttm*252:.4f} due to invalid strike/forward prices.")
             continue
 
         strikes = strikes[valid_indices]
         market_iv = market_iv[valid_indices]
 
         if len(strikes) < 5: # Check again after filtering
-            print(f"Skipping TTM={ttm:.4f} after filtering invalid prices ({len(strikes)} points left).")
+            print(f"Skipping TTM={ttm*252:.4f} after filtering invalid prices ({len(strikes)} points left).")
             continue
 
 
@@ -241,7 +243,7 @@ def single_expiry_comparison_plot(options_data_iv: Dict[float, pd.DataFrame],
         
     if svi_params_calibrated:
         # Select a TTM for plotting (e.g., the first one calibrated, or a middle one)
-        plot_ttm = list(svi_params_calibrated.keys())[len(svi_params_calibrated.keys()) // 2]
+        plot_ttm = list(svi_params_calibrated.keys())[5]
         print(f"\nGenerating comparison plot for TTM = {plot_ttm:.4f}...")
 
         df_plot = options_data_iv[plot_ttm]

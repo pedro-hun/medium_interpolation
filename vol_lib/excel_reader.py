@@ -103,7 +103,7 @@ class ExcelReader:
             self.data_df = self.get_type()
         
         # today = pd.Timestamp.now().date()
-        today = pd.to_datetime('17/10/2025', format='%d/%m/%Y').date()
+        today = pd.to_datetime('21/10/2025', format='%d/%m/%Y').date()
 
         # Convert to datetime if needed
         maturity_dates = pd.to_datetime(self.data_df["Expiry"], format='%d/%m/%Y')

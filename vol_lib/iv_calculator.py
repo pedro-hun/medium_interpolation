@@ -15,7 +15,7 @@ TICKER_SYMBOL: str = "AAPL" # Default ticker, can be overridden by environment v
 RISK_FREE_RATE: float = 0.15 # Example risk-free rate (annualized)
 # Filter thresholds for option data cleaning
 MIN_VOLUME: int = 1
-MAX_REL_SPREAD: float = 0.50 # Maximum relative spread (Spread / MidPrice)
+MAX_REL_SPREAD: float = 0.10 # Maximum relative spread (Spread / MidPrice)
 MIN_DAYS_TO_EXPIRY: int = 1 # Minimum days to expiry to include
 MIN_IV: float = 0.01 # Minimum plausible IV
 MAX_IV: float = 2.00 # Maximum plausible IV
