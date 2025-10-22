@@ -1,3 +1,4 @@
+from scipy.stats import norm
 import pandas as pd
 import numpy as np
 from scipy.optimize import minimize
@@ -106,13 +107,44 @@ def svi_objective(params: Tuple[float, float, float, float, float],
     a, b, rho, m, sigma = params
     return error
 
+def calculate_vega_forward(F: float, K: np.ndarray, T: float, sigma: np.ndarray) -> np.ndarray:
+    """
+    Calculate Vega using forward price (more appropriate for options data).
+    
+    Parameters:
+    -----------
+    F : float
+        Forward price
+    K : np.ndarray
+        Array of strike prices
+    T : float
+        Time to expiration in years
+    sigma : np.ndarray
+        Array of implied volatilities
+    
+    Returns:
+    --------
+    np.ndarray
+        Array of Vega values
+    """
+    # For forward-based calculation, d1 = (ln(F/K) + 0.5*sigma^2*T) / (sigma*sqrt(T))
+    d1 = (np.log(F / K) + 0.5 * sigma**2 * T) / (sigma * np.sqrt(T))
+    
+    # Vega = F * phi(d1) * sqrt(T) * exp(-r*T)
+    # For simplicity, we'll use the discounted forward approach
+    vega = F * norm.pdf(d1) * np.sqrt(T)
+    
+    return vega
 
 def calibrate_svi_slice(k: np.ndarray,
                         market_w: np.ndarray,
                         ttm: float,
+                        forward_price: float,
+                        strikes: np.ndarray,
+                        market_iv: np.ndarray,
                         initial_guess: List[float] = None,
                         bounds: List[Tuple[float, float]] = None,
-                        weights: np.ndarray = None) -> Tuple[np.ndarray, float]:
+                        use_vega_weights: bool = True) -> Tuple[np.ndarray, float]:
     """
     Calibrates SVI parameters for a single expiration slice using optimization.
 
@@ -125,15 +157,31 @@ def calibrate_svi_slice(k: np.ndarray,
         bounds: Optional bounds for the optimizer. If None, default bounds are used.
         weights: Optional weights for the optimization objective function.
                  Defaults to equal weights if None.
+        use_vega_weights: If True, weights are based on option Vega.
 
     Returns:
         A tuple containing:
         - calibrated_params (np.ndarray): The optimized SVI parameters.
         - optimization_result (OptimizeResult): The full result object from scipy.optimize.minimize.
     """
-    if weights is None:
+    # Calculate weights
+    if use_vega_weights:
+        # Calculate Vega for each option
+        vega_values = calculate_vega_forward(forward_price, strikes, ttm, market_iv)
+        
+        # Normalize Vega values to create weights
+        # Higher Vega = higher sensitivity = higher weight in calibration
+        weights = vega_values / np.sum(vega_values)
+        
+
+        weights = weights / np.sum(weights)  # Renormalize
+        
+        print(f"  Using Vega weights - Min: {weights.min():.4f}, Max: {weights.max():.4f}")
+    else:
         weights = np.ones_like(market_w)
-    weights = weights / np.sum(weights) # Normalize weights
+        weights = weights / np.sum(weights)  # Normalize weights
+
+
 
     # Default initial guess - often requires tuning based on market regime
     if initial_guess is None:
@@ -186,10 +234,14 @@ def calibrate_svi_slice(k: np.ndarray,
 
 
 # --- Main Calibration Loop ---
-def calibration_loop(options_data_iv: Dict[float, pd.DataFrame]) -> tuple[Dict[float, np.ndarray], Dict[float, Any]]:
+def calibration_loop(options_data_iv: Dict[float, pd.DataFrame],
+                     use_vega_weights: bool = True) -> tuple[Dict[float, np.ndarray], Dict[float, Any]]:
+    
     svi_params_calibrated: Dict[float, np.ndarray] = {}
     optimization_results: Dict[float, Any] = {}
+
     print("Starting SVI calibration for each expiration slice...")
+
     for ttm, df_slice in options_data_iv.items():
         if len(df_slice) < 5: # Need sufficient points to fit 5 parameters
             print(f"Skipping TTM={ttm*252:.4f} due to insufficient data points ({len(df_slice)}).")
@@ -218,12 +270,13 @@ def calibration_loop(options_data_iv: Dict[float, pd.DataFrame]) -> tuple[Dict[f
         market_total_variance = market_iv**2 * ttm
 
         # Optional: Use Vega weighting (requires Black-Scholes Vega calculation - omitted for simplicity here)
-        # weights = calculate_vega(strikes, forward_price, ttm, market_iv, r, q) # Assuming r, q are known
-        weights = np.ones_like(market_total_variance) # Equal weights
+
 
         try:
             calibrated_params, optim_result = calibrate_svi_slice(
-                log_moneyness, market_total_variance, ttm, weights=weights
+                log_moneyness, market_total_variance, ttm,
+                forward_price=forward_price, strikes=strikes, market_iv=market_iv,
+                use_vega_weights=use_vega_weights
             )
             svi_params_calibrated[ttm] = calibrated_params
             optimization_results[ttm] = optim_result
@@ -239,11 +292,11 @@ print("\nSVI calibration finished.")
 
 # --- Plot 4: Single Expiry Comparison ---
 def single_expiry_comparison_plot(options_data_iv: Dict[float, pd.DataFrame],
-                                  svi_params_calibrated: Dict[float, np.ndarray]) -> None:
+                                  svi_params_calibrated: Dict[float, np.ndarray], n_expire: int) -> None:
         
     if svi_params_calibrated:
         # Select a TTM for plotting (e.g., the first one calibrated, or a middle one)
-        plot_ttm = list(svi_params_calibrated.keys())[5]
+        plot_ttm = list(svi_params_calibrated.keys())[n_expire]
         print(f"\nGenerating comparison plot for TTM = {plot_ttm:.4f}...")
 
         df_plot = options_data_iv[plot_ttm]
@@ -278,69 +331,69 @@ def single_expiry_comparison_plot(options_data_iv: Dict[float, pd.DataFrame],
 
 
     # --- Plot 5: 3D SVI Volatility Surface ---
-    if len(svi_params_calibrated) > 1: # Need at least two expiries to make a surface
-        print("\nGenerating 3D SVI volatility surface plot...")
+    # if len(svi_params_calibrated) > 1: # Need at least two expiries to make a surface
+    #     print("\nGenerating 3D SVI volatility surface plot...")
 
-        calibrated_ttms = sorted(svi_params_calibrated.keys())
-        all_params = np.array([svi_params_calibrated[t] for t in calibrated_ttms])
+    #     calibrated_ttms = sorted(svi_params_calibrated.keys())
+    #     all_params = np.array([svi_params_calibrated[t] for t in calibrated_ttms])
 
-        # Create interpolation functions for each SVI parameter across TTMs
-        # Using simple linear interpolation here; more advanced methods could be used
-        interp_funcs: List[Callable] = []
-        for i in range(all_params.shape[1]): # Iterate through parameters a, b, rho, m, sigma
-            # Use linear interpolation, fill beyond bounds with nearest value
-            interp_funcs.append(interp1d(calibrated_ttms, all_params[:, i], kind='linear', fill_value="extrapolate"))
+    #     # Create interpolation functions for each SVI parameter across TTMs
+    #     # Using simple linear interpolation here; more advanced methods could be used
+    #     interp_funcs: List[Callable] = []
+    #     for i in range(all_params.shape[1]): # Iterate through parameters a, b, rho, m, sigma
+    #         # Use linear interpolation, fill beyond bounds with nearest value
+    #         interp_funcs.append(interp1d(calibrated_ttms, all_params[:, i], kind='linear', fill_value="extrapolate"))
 
-        def get_svi_params_interp(ttm: float) -> Tuple[float, float, float, float, float]:
-            """Interpolates SVI parameters for a given TTM."""
-            # Ensure TTM is within reasonable bounds if extrapolating heavily
-            ttm = np.clip(ttm, calibrated_ttms[0], calibrated_ttms[-1])
-            return tuple(f(ttm) for f in interp_funcs) # type: ignore
+    #     def get_svi_params_interp(ttm: float) -> Tuple[float, float, float, float, float]:
+    #         """Interpolates SVI parameters for a given TTM."""
+    #         # Ensure TTM is within reasonable bounds if extrapolating heavily
+    #         ttm = np.clip(ttm, calibrated_ttms[0], calibrated_ttms[-1])
+    #         return tuple(f(ttm) for f in interp_funcs) # type: ignore
 
-        # Define grid for the surface plot
-        min_k = min(np.log(df['Strike'].min() / df['Forward'].iloc[0]) for df in options_data_iv.values() if not df.empty)
-        max_k = max(np.log(df['Strike'].max() / df['Forward'].iloc[0]) for df in options_data_iv.values() if not df.empty)
-        k_grid_vals = np.linspace(min_k, max_k, 50)
+    #     # Define grid for the surface plot
+    #     min_k = min(np.log(df['Strike'].min() / df['Forward'].iloc[0]) for df in options_data_iv.values() if not df.empty)
+    #     max_k = max(np.log(df['Strike'].max() / df['Forward'].iloc[0]) for df in options_data_iv.values() if not df.empty)
+    #     k_grid_vals = np.linspace(min_k, max_k, 50)
 
-        min_T = min(calibrated_ttms)
-        max_T = max(calibrated_ttms)
-        T_grid_vals = np.linspace(min_T, max_T, 40)
+    #     min_T = min(calibrated_ttms)
+    #     max_T = max(calibrated_ttms)
+    #     T_grid_vals = np.linspace(min_T, max_T, 40)
 
-        K_grid, T_grid = np.meshgrid(k_grid_vals, T_grid_vals)
-        IV_surface = np.full_like(K_grid, np.nan)
+    #     K_grid, T_grid = np.meshgrid(k_grid_vals, T_grid_vals)
+    #     IV_surface = np.full_like(K_grid, np.nan)
 
-        # Calculate IV for each point on the grid using interpolated SVI params
-        for i in range(T_grid.shape[0]):
-            for j in range(K_grid.shape[1]):
-                k_val = K_grid[i, j]
-                T_val = T_grid[i, j]
-                if T_val <= 1e-6: continue # Avoid division by zero TTM
+    #     # Calculate IV for each point on the grid using interpolated SVI params
+    #     for i in range(T_grid.shape[0]):
+    #         for j in range(K_grid.shape[1]):
+    #             k_val = K_grid[i, j]
+    #             T_val = T_grid[i, j]
+    #             if T_val <= 1e-6: continue # Avoid division by zero TTM
 
-                interp_params = get_svi_params_interp(T_val)
-                model_w = svi_raw(k_val, interp_params)
-                IV_surface[i, j] = np.sqrt(model_w / T_val)
+    #             interp_params = get_svi_params_interp(T_val)
+    #             model_w = svi_raw(k_val, interp_params)
+    #             IV_surface[i, j] = np.sqrt(model_w / T_val)
 
-        # Ensure IVs are within a reasonable range
-        IV_surface = np.clip(IV_surface, 0.01, 1.5) # Clip extreme values
+    #     # Ensure IVs are within a reasonable range
+    #     IV_surface = np.clip(IV_surface, 0.01, 1.5) # Clip extreme values
 
-        # Create the 3D plot
-        fig = plt.figure(figsize=(12, 8))
-        ax = fig.add_subplot(111, projection='3d')
-        surf = ax.plot_surface(K_grid, T_grid, IV_surface, cmap='viridis', # Use 'viridis' colormap
-                            linewidth=0, antialiased=True, alpha=0.9)
+    #     # Create the 3D plot
+    #     fig = plt.figure(figsize=(12, 8))
+    #     ax = fig.add_subplot(111, projection='3d')
+    #     surf = ax.plot_surface(K_grid, T_grid, IV_surface, cmap='viridis', # Use 'viridis' colormap
+    #                         linewidth=0, antialiased=True, alpha=0.9)
 
-        ax.set_xlabel('Log-Moneyness (k)')
-        ax.set_ylabel('Time to Expiry (T)')
-        ax.set_zlabel('Implied Volatility (SVI)')
-        ax.set_title('Implied Volatility Surface from Calibrated SVI Model')
-        fig.colorbar(surf, shrink=0.5, aspect=5, label='Implied Volatility')
-        ax.view_init(elev=30, azim=-120) # Adjust view angle for better visualization
-        plt.show() # Uncomment to display plot interactively
-        # plt.close()
+    #     ax.set_xlabel('Log-Moneyness (k)')
+    #     ax.set_ylabel('Time to Expiry (T)')
+    #     ax.set_zlabel('Implied Volatility (SVI)')
+    #     ax.set_title('Implied Volatility Surface from Calibrated SVI Model')
+    #     fig.colorbar(surf, shrink=0.5, aspect=5, label='Implied Volatility')
+    #     ax.view_init(elev=30, azim=-120) # Adjust view angle for better visualization
+    #     plt.show() # Uncomment to display plot interactively
+    #     # plt.close()
 
-    elif len(svi_params_calibrated) == 1:
-        print("Skipping Plot 5 generation as only one expiry was calibrated. Need at least two for a surface.")
-    else:
-        print("Skipping Plot 5 generation as no SVI parameters were successfully calibrated.")
+    # elif len(svi_params_calibrated) == 1:
+    #     print("Skipping Plot 5 generation as only one expiry was calibrated. Need at least two for a surface.")
+    # else:
+    #     print("Skipping Plot 5 generation as no SVI parameters were successfully calibrated.")
 
-    print("\nSection 4 finished.")
+    # print("\nSection 4 finished.")
